@@ -1,6 +1,6 @@
 const port = Number(process.env.PORT || 3001);
 const taxRate = Number(process.env.TAX_RATE || 0);
-const corsOrigin = process.env.CORS_ORIGIN || (process.env.NODE_ENV === "production" ? "" : "http://localhost:3001");
+const corsOrigin = process.env.CORS_ORIGIN || process.env.RENDER_EXTERNAL_URL || (process.env.NODE_ENV === "production" ? "" : "http://localhost:3001");
 
 if (!Number.isInteger(port) || port < 1 || port > 65535)
      throw new Error("PORT must be a valid TCP port.");
