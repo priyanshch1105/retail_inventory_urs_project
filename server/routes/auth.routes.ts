@@ -1,0 +1,11 @@
+import { Router } from "express";
+import { login, me } from "../controllers/auth.controller";
+import { authRequired } from "../auth";
+import { asyncHandler } from "../middleware/async.middleware";
+import { validateBody } from "../middleware/validate.middleware";
+import { loginSchema } from "../validators/auth.validator";
+const router = Router();
+const attempts = new Map<string, { count: number; reset: number }>();
+router.post("/login", (req, res, next) => { const now = Date.now(); const key = req.ip || "unknown"; const item = attempts.get(key); if (item && item.reset > now && item.count >= 10) return res.status(429).json({ success: false, message: "Too many login attempts. Try again later.", code: "RATE_LIMITED" }); if (!item || item.reset <= now) attempts.set(key, { count: 1, reset: now + 15 * 60_000 }); else item.count++; next(); }, validateBody(loginSchema), asyncHandler(login));
+router.get("/me", authRequired, me);
+export default router;

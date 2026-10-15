@@ -1,0 +1,2 @@
+import { createProduct, getProduct, listProducts, updateProduct, Product } from "../repositories/inventory.repository";
+export const productService = { list: (query: { search?: string; category?: string; status?: string }) => listProducts(query), get: (id: string) => getProduct(id), create: (data: Omit<Product, "id" | "active">) => createProduct(data), update: (id: string, data: Partial<Omit<Product, "id">>) => updateProduct(id, data), deactivate: (id: string) => updateProduct(id, { active: false }) };

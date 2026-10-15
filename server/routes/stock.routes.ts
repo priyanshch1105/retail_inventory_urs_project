@@ -1,0 +1,16 @@
+import { Router } from "express";
+import { authRequired, allowRoles } from "../auth";
+import { list, lowStock, create, requests, createRequest, review } from "../controllers/stock.controller";
+import { asyncHandler } from "../middleware/async.middleware";
+import { validateBody } from "../middleware/validate.middleware";
+import { adjustmentDecisionSchema, adjustmentRequestSchema, adjustmentSchema } from "../validators/inventory.validator";
+const router = Router();
+router.use(authRequired);
+router.get("/low-stock", asyncHandler(lowStock));
+router.get("/adjustments", asyncHandler(list));
+router.get("/movements", asyncHandler(list));
+router.get("/requests", asyncHandler(requests));
+router.post("/requests", allowRoles("Staff"), validateBody(adjustmentRequestSchema), asyncHandler(createRequest));
+router.patch("/requests/:id", allowRoles("Admin"), validateBody(adjustmentDecisionSchema), asyncHandler(review));
+router.post("/adjustments", allowRoles("Admin"), validateBody(adjustmentSchema), asyncHandler(create));
+export default router;

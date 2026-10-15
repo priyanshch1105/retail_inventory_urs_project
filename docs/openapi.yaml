@@ -1,0 +1,491 @@
+openapi: 3.1.0
+info:
+  title: Retail Inventory & Sales API
+  version: 1.0.0
+  description: |
+    API for the Retail Inventory & Sales Management application. Use the JWT returned by
+    POST /api/auth/login as a Bearer token for protected routes. Staff cannot view purchase
+    costs or profit reports. Sales and stock updates require MongoDB transactions.
+servers:
+  - url: /api
+    description: API on the same host serving Swagger UI
+tags:
+  - name: Health
+  - name: Authentication
+  - name: Products
+  - name: Inventory
+  - name: Sales
+  - name: Reports
+  - name: Settings
+  - name: Users
+paths:
+  /health:
+    get:
+      tags: [Health]
+      security: []
+      summary: Check server health
+      responses:
+        '200':
+          description: Service is running
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, const: true }
+                  service: { type: string, example: retail-inventory }
+  /auth/login:
+    post:
+      tags: [Authentication]
+      security: []
+      summary: Sign in
+      description: Login attempts are throttled per client IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, example: admin@example.com }
+                password: { type: string, minLength: 6 }
+      responses:
+        '200':
+          description: Authenticated account and JWT
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  user: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get current account
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /products:
+    get:
+      tags: [Products]
+      summary: List and search active products
+      parameters:
+        - { in: query, name: search, schema: { type: string } }
+        - { in: query, name: category, schema: { type: string } }
+        - in: query
+          name: status
+          schema: { type: string, enum: [Low, Healthy, Out] }
+      responses:
+        '200':
+          description: Product list (limited to 500)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  products:
+                    type: array
+                    items: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Products]
+      summary: Create product (Admin)
+      description: Stock is set on creation; subsequent stock changes use inventory endpoints.
+      x-required-role: Admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductInput' }
+      responses:
+        '201': { description: Product created }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /products/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/id' }
+    get:
+      tags: [Products]
+      summary: Get product
+      responses:
+        '200': { description: Product details }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Products]
+      summary: Update catalog fields (Admin)
+      x-required-role: Admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductUpdate' }
+      responses:
+        '200': { description: Product updated }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /products/{id}/deactivate:
+    parameters:
+      - { $ref: '#/components/parameters/id' }
+    patch:
+      tags: [Products]
+      summary: Deactivate product (Admin)
+      x-required-role: Admin
+      responses:
+        '200': { description: Product deactivated; history retained }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /inventory/low-stock:
+    get:
+      tags: [Inventory]
+      summary: List products at or below reorder level
+      responses:
+        '200': { description: Low-stock products }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /inventory/movements:
+    get:
+      tags: [Inventory]
+      summary: List recent stock movements
+      description: Staff see their own movements; Admin sees all movements.
+      responses:
+        '200': { description: Recent movements }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /inventory/adjustments:
+    post:
+      tags: [Inventory]
+      summary: Apply stock adjustment (Admin)
+      x-required-role: Admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId, type, quantity]
+              properties:
+                productId: { type: string }
+                type: { type: string, enum: [Received, Added, Removed] }
+                quantity: { type: integer, minimum: 1, maximum: 100000 }
+                reason: { type: string, maxLength: 200 }
+      responses:
+        '201': { description: Adjustment applied }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /inventory/requests:
+    get:
+      tags: [Inventory]
+      summary: List adjustment requests
+      description: Admin sees pending requests; Staff sees their pending and rejected requests.
+      responses:
+        '200': { description: Adjustment requests }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Inventory]
+      summary: Submit adjustment request (Staff)
+      x-required-role: Staff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId, type, quantity, reason]
+              properties:
+                productId: { type: string }
+                type: { type: string, enum: [Received, Added, Removed] }
+                quantity: { type: integer, minimum: 1, maximum: 100000 }
+                reason: { type: string, minLength: 3, maxLength: 200 }
+      responses:
+        '201': { description: Request submitted for Admin review }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /inventory/requests/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/id' }
+    patch:
+      tags: [Inventory]
+      summary: Approve or reject request (Admin)
+      x-required-role: Admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [Approved, Rejected] }
+      responses:
+        '200': { description: Request reviewed; approval updates stock transactionally }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /sales:
+    get:
+      tags: [Sales]
+      summary: List recent invoices
+      description: Staff see their own invoices; Admin sees all invoices.
+      responses:
+        '200': { description: Recent invoices (limited to 500) }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Sales]
+      summary: Create sale / checkout
+      description: Totals are server-calculated. Sale, inventory deductions and movements are atomic; requires MongoDB transactions.
+      x-required-role: [Admin, Staff]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: object
+                    required: [productId, quantity]
+                    properties:
+                      productId: { type: string }
+                      quantity: { type: integer, minimum: 1, maximum: 100000 }
+                discount: { type: number, minimum: 0, maximum: 100000, default: 0 }
+      responses:
+        '201': { description: Sale created }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/TransactionsUnavailable' }
+  /sales/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/id' }
+    get:
+      tags: [Sales]
+      summary: Get invoice
+      description: Staff can access only their own invoice.
+      responses:
+        '200': { description: Invoice details }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /reports/sales:
+    get:
+      tags: [Reports]
+      summary: Sales report
+      description: Date bounds are inclusive UTC calendar days; omitted bounds default to today in UTC.
+      parameters:
+        - { $ref: '#/components/parameters/from' }
+        - { $ref: '#/components/parameters/to' }
+      responses:
+        '200': { description: Sales totals, transaction count, top products and low-stock products }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /reports/profit:
+    get:
+      tags: [Reports]
+      summary: Gross profit report (Admin)
+      description: Profit uses the cost price snapshot captured on each sale line.
+      x-required-role: Admin
+      parameters:
+        - { $ref: '#/components/parameters/from' }
+        - { $ref: '#/components/parameters/to' }
+      responses:
+        '200': { description: Revenue, cost of goods sold, gross profit and margin }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /settings:
+    get:
+      tags: [Settings]
+      summary: Read business settings (Admin)
+      x-required-role: Admin
+      responses:
+        '200': { description: Business name, tax rate and maximum discount percentage }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [Settings]
+      summary: Update business settings (Admin)
+      x-required-role: Admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [businessName, taxRate, maxDiscountPercent]
+              properties:
+                businessName: { type: string, minLength: 2, maxLength: 100 }
+                taxRate: { type: number, minimum: 0, maximum: 100 }
+                maxDiscountPercent: { type: number, minimum: 0, maximum: 100 }
+      responses:
+        '200': { description: Settings updated }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /users:
+    get:
+      tags: [Users]
+      summary: List staff accounts (Admin)
+      x-required-role: Admin
+      responses:
+        '200': { description: Staff account list }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /users/staff:
+    post:
+      tags: [Users]
+      summary: Create Staff account (Admin)
+      x-required-role: Admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                email: { type: string, format: email, maxLength: 254 }
+                password: { type: string, minLength: 12, maxLength: 128 }
+      responses:
+        '201': { description: Staff account created }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /users/{id}/status:
+    parameters:
+      - { $ref: '#/components/parameters/id' }
+    patch:
+      tags: [Users]
+      summary: Enable or disable Staff account (Admin)
+      x-required-role: Admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [active]
+              properties:
+                active: { type: boolean }
+      responses:
+        '200': { description: Account status updated }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    id:
+      in: path
+      name: id
+      required: true
+      schema: { type: string }
+    from:
+      in: query
+      name: from
+      description: Inclusive UTC start day (YYYY-MM-DD)
+      schema: { type: string, format: date }
+    to:
+      in: query
+      name: to
+      description: Inclusive UTC end day (YYYY-MM-DD)
+      schema: { type: string, format: date }
+  schemas:
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { type: string, enum: [Admin, Staff] }
+    Product:
+      type: object
+      description: purchasePrice is returned to Admin only.
+      properties:
+        id: { type: string }
+        sku: { type: string }
+        name: { type: string }
+        category: { type: string }
+        purchasePrice: { type: number, minimum: 0 }
+        sellingPrice: { type: number, minimum: 0 }
+        stock: { type: integer, minimum: 0 }
+        reorderLevel: { type: integer, minimum: 0 }
+        active: { type: boolean }
+    ProductInput:
+      type: object
+      required: [sku, name, category, purchasePrice, sellingPrice, stock, reorderLevel]
+      properties:
+        sku: { type: string, minLength: 2, maxLength: 30 }
+        name: { type: string, minLength: 2, maxLength: 80 }
+        category: { type: string, minLength: 2, maxLength: 40 }
+        purchasePrice: { type: number, minimum: 0 }
+        sellingPrice: { type: number, minimum: 0 }
+        stock: { type: integer, minimum: 0 }
+        reorderLevel: { type: integer, minimum: 0 }
+    ProductUpdate:
+      type: object
+      description: All catalog input fields are optional; stock cannot be edited here.
+      properties:
+        sku: { type: string, minLength: 2, maxLength: 30 }
+        name: { type: string, minLength: 2, maxLength: 80 }
+        category: { type: string, minLength: 2, maxLength: 40 }
+        purchasePrice: { type: number, minimum: 0 }
+        sellingPrice: { type: number, minimum: 0 }
+        reorderLevel: { type: integer, minimum: 0 }
+    Error:
+      type: object
+      properties:
+        success: { type: boolean, const: false }
+        message: { type: string }
+        code: { type: string }
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing, invalid or expired token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Authenticated role is not allowed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Duplicate or business-rule conflict
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: Too many login attempts
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TransactionsUnavailable:
+      description: MongoDB replica set or transaction-capable deployment required
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

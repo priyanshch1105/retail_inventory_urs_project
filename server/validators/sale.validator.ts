@@ -1,0 +1,1 @@
+export { saleSchema } from "../validation";

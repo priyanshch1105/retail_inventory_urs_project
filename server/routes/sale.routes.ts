@@ -1,0 +1,12 @@
+import { Router } from "express";
+import { authRequired, allowRoles } from "../auth";
+import { list, detail, create } from "../controllers/sale.controller";
+import { asyncHandler } from "../middleware/async.middleware";
+import { validateBody } from "../middleware/validate.middleware";
+import { saleSchema } from "../validators/sale.validator";
+const router = Router();
+router.use(authRequired);
+router.get("/", asyncHandler(list));
+router.get("/:id", asyncHandler(detail));
+router.post("/", allowRoles("Admin", "Staff"), validateBody(saleSchema), asyncHandler(create));
+export default router;

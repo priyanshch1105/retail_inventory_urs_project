@@ -1,0 +1,14 @@
+import { Router } from "express";
+import { authRequired, allowRoles } from "../auth";
+import { list, detail, create, update, deactivate } from "../controllers/product.controller";
+import { asyncHandler } from "../middleware/async.middleware";
+import { validateBody } from "../middleware/validate.middleware";
+import { productSchema, productUpdateSchema } from "../validators/product.validator";
+const router = Router();
+router.use(authRequired);
+router.get("/", asyncHandler(list));
+router.get("/:id", asyncHandler(detail));
+router.post("/", allowRoles("Admin"), validateBody(productSchema), asyncHandler(create));
+router.put("/:id", allowRoles("Admin"), validateBody(productUpdateSchema), asyncHandler(update));
+router.patch("/:id/deactivate", allowRoles("Admin"), asyncHandler(deactivate));
+export default router;

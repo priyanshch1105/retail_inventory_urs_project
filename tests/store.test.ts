@@ -1,0 +1,3 @@
+import { describe, expect, it } from "vitest";
+import { calculateSaleTotals } from "../server/store";
+describe("retail sale totals", () => { const line = { productId: "p1", sku: "SKU", name: "Item", price: 100, quantity: 2, lineTotal: 200 }; it("calculates tax after discount", () => { expect(calculateSaleTotals([line], 20, 18)).toEqual({ subtotal: 200, discount: 20, taxRate: 18, tax: 32.4, total: 212.4 }); }); it("rejects discounts greater than subtotal", () => { expect(() => calculateSaleTotals([line], 201, 18)).toThrow("Discount cannot exceed subtotal."); }); it("handles zero tax", () => { expect(calculateSaleTotals([line], 0, 0).total).toBe(200); }); });
